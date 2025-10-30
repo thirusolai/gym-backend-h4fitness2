@@ -16,7 +16,10 @@ const gymBillSchema = new mongoose.Schema(
     workoutHours: String,
     areaAddress: String,
     remarks: String,
-    profilePicture: { type: String }, // File path or URL
+    profilePicture: {
+    data: Buffer,
+    contentType: String,
+  }, // File path or URL
     package: String,
     joiningDate: String,
     endDate: String,

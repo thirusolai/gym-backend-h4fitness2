@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import path from "path";
+import fs from "fs";
 import GymBill from "../models/GymBill.js";
 
 const router = express.Router();
@@ -8,13 +8,8 @@ const router = express.Router();
 // ----------------------
 // 🗂️ Multer Configuration
 // ----------------------
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname.replace(/\s+/g, "_"));
-  },
-});
-const upload = multer({ storage });
+// Store file temporarily in 'uploads' (we’ll delete after reading)
+const upload = multer({ dest: "uploads/" });
 
 // -----------------------------
 // 🔢 Sequential Member ID Maker
@@ -51,11 +46,22 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
       status = "Active";
     }
 
+    // ✅ Convert uploaded image to Buffer
+    let profilePicture = undefined;
+    if (req.file) {
+      const imageData = fs.readFileSync(req.file.path);
+      profilePicture = {
+        data: imageData,
+        contentType: req.file.mimetype,
+      };
+      fs.unlinkSync(req.file.path); // remove temp file
+    }
+
     const newBill = new GymBill({
       ...req.body,
       memberId,
       status,
-      profilePicture: req.file ? req.file.path : null,
+      profilePicture,
     });
 
     await newBill.save();
@@ -138,10 +144,17 @@ router.put("/renew/:id", async (req, res) => {
 // -----------------
 router.put("/:id", upload.single("profilePicture"), async (req, res) => {
   try {
-    const updatedData = {
-      ...req.body,
-      ...(req.file && { profilePicture: req.file.path }),
-    };
+    let updatedData = { ...req.body };
+
+    // ✅ Handle new profile image if provided
+    if (req.file) {
+      const imageData = fs.readFileSync(req.file.path);
+      updatedData.profilePicture = {
+        data: imageData,
+        contentType: req.file.mimetype,
+      };
+      fs.unlinkSync(req.file.path);
+    }
 
     if (!updatedData.status || !["Active", "Inactive"].includes(updatedData.status)) {
       updatedData.status = "Active";
@@ -168,6 +181,24 @@ router.delete("/:id", async (req, res) => {
   } catch (err) {
     console.error("❌ Delete error:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------
+// 🖼️ Serve Image by ID
+// ----------------------
+router.get("/image/:id", async (req, res) => {
+  try {
+    const bill = await GymBill.findById(req.params.id);
+    if (!bill || !bill.profilePicture?.data) {
+      return res.status(404).send("Image not found");
+    }
+
+    res.set("Content-Type", bill.profilePicture.contentType);
+    res.send(bill.profilePicture.data);
+  } catch (error) {
+    console.error("❌ Image fetch error:", error);
+    res.status(500).send("Error fetching image");
   }
 });
 
