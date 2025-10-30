@@ -4,14 +4,11 @@ const followupSchema = new mongoose.Schema(
   {
     client: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Client",
+      ref: "GymBill", // ✅ changed from "Client" to "GymBill"
       required: true,
     },
-    followupType: {
-      type: String,
-      enum: ["Call", "Message", "Visit", "Other"],
-      required: true,
-    },
+   followupType: { type: String, required: true },
+
     scheduleDate: { type: Date, required: true },
     scheduleTime: { type: String },
     response: { type: String },

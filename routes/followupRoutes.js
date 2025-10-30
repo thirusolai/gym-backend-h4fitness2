@@ -1,6 +1,6 @@
 import express from "express";
 import Followup from "../models/Followup.js";
-import Client from "../models/Client.js";
+import GymBill from "../models/GymBill.js"; // ✅ changed
 
 const router = express.Router();
 
@@ -8,7 +8,7 @@ const router = express.Router();
 router.post("/", async (req, res) => {
   try {
     const {
-      clientId, // could be _id or custom ID
+      clientId, // _id from GymBill
       followupType,
       scheduleDate,
       scheduleTime,
@@ -18,7 +18,8 @@ router.post("/", async (req, res) => {
 
     // Try finding client by Mongo _id first, else by custom clientId field
     let client =
-      (await Client.findById(clientId)) || (await Client.findOne({ clientId }));
+      (await GymBill.findById(clientId)) ||
+      (await GymBill.findOne({ memberId: clientId })); // ✅ support memberId too
 
     if (!client) {
       console.error("❌ Client not found for ID:", clientId);
@@ -35,12 +36,14 @@ router.post("/", async (req, res) => {
     });
 
     await followup.save();
-    console.log("✅ Follow-up created for client:", client.name);
+    console.log("✅ Follow-up created for client:", client.client);
 
     res.status(201).json(followup);
   } catch (err) {
     console.error("❌ Error creating follow-up:", err.message);
-    res.status(500).json({ message: "Error creating followup", error: err.message });
+    res
+      .status(500)
+      .json({ message: "Error creating follow-up", error: err.message });
   }
 });
 
@@ -48,13 +51,13 @@ router.post("/", async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const followups = await Followup.find()
-      .populate("client", "name contactNumber clientId") // include ID field too
+      .populate("client", "client contactNumber memberId") // ✅ using GymBill fields
       .sort({ createdAt: -1 });
 
     res.status(200).json(followups);
   } catch (err) {
     console.error("❌ Error fetching follow-ups:", err.message);
-    res.status(500).json({ message: "Error fetching followups" });
+    res.status(500).json({ message: "Error fetching follow-ups" });
   }
 });
 
