@@ -12,7 +12,7 @@ import ptRoutes from "./routes/ptRoutes.js";
 import subRoutes from "./routes/subscriptionRoutes.js";
 import followupRoutes from "./routes/followupRoutes.js";
 import gymBillRoutes from "./routes/gymBillRoutes.js"; // ✅ Make sure this file exists
-
+import packageRoutes from "./routes/packageRoutes.js";
 import multer from "multer"; // ✅ use ES Module import instead of require
 import path from "path";
 import { fileURLToPath } from "url"; // ✅ Needed for __dirname in ESM
@@ -51,7 +51,7 @@ app.use("/api/personaltrainings", ptRoutes);
 app.use("/api/subscriptions", subRoutes);
 app.use("/api/followups", followupRoutes);
 app.use("/api/gymbill", gymBillRoutes);
-
+app.use("/api/packages", packageRoutes);
 // Database connection
 mongoose
   .connect(process.env.MONGO_URI)

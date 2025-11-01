@@ -11,26 +11,24 @@ const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 
 // -----------------------------
-// 🔢 Sequential Member ID Maker
+// 🔢 Sequential Numeric Member ID Generator
 // -----------------------------
-async function generateSequentialId(prefix, field) {
-  const records = await GymBill.find({
-    [field]: { $regex: `^${prefix}` },
-  }).lean();
+async function generateSequentialMemberId() {
+  const lastBill = await GymBill.findOne().sort({ _id: -1 }).lean();
+  let nextMemberId = 1;
 
-  const numbers = records
-    .map((r) => {
-      const num = parseInt(r[field]?.replace(prefix, ""), 10);
-      return isNaN(num) ? 0 : num;
-    })
-    .filter((n) => n > 0);
+  if (lastBill && lastBill.memberId) {
+    const lastNumber = parseInt(lastBill.memberId, 10);
+    if (!isNaN(lastNumber)) {
+      nextMemberId = lastNumber + 1;
+    }
+  }
 
-  const lastId = numbers.length > 0 ? Math.max(...numbers) : 0;
-  return `${prefix}${(lastId + 1).toString().padStart(3, "0")}`;
+  return nextMemberId.toString(); // Return as string for consistency
 }
 
 // ----------------------
-// 🖼️ Serve Image by ID (✅ must be placed BEFORE /:id routes)
+// 🖼️ Serve Image by ID
 // ----------------------
 router.get("/image/:id", async (req, res) => {
   try {
@@ -53,7 +51,6 @@ router.get("/image/:id", async (req, res) => {
   }
 });
 
-
 // ---------------------
 // 🧾 Create New Gym Bill
 // ---------------------
@@ -62,7 +59,8 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
     if (!req.body || Object.keys(req.body).length === 0)
       return res.status(400).json({ message: "No data provided" });
 
-    const memberId = await generateSequentialId("MEM", "memberId");
+    // ✅ Generate sequential numeric ID
+    const memberId = await generateSequentialMemberId();
 
     // ✅ Ensure valid status
     let status = req.body.status?.trim();
@@ -70,7 +68,7 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
       status = "Active";
     }
 
-    // ✅ Convert uploaded image to Buffer
+    // ✅ Handle profile picture (convert to Buffer)
     let profilePicture = undefined;
     if (req.file) {
       const imageData = fs.readFileSync(req.file.path);
@@ -78,7 +76,7 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
         data: imageData,
         contentType: req.file.mimetype,
       };
-      fs.unlinkSync(req.file.path); // remove temp file
+      fs.unlinkSync(req.file.path);
     }
 
     const newBill = new GymBill({
@@ -97,9 +95,7 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error creating gym bill:", error);
-    res
-      .status(500)
-      .json({ message: "Error creating gym bill", error: error.message });
+    res.status(500).json({ message: "Error creating gym bill", error: error.message });
   }
 });
 
@@ -111,9 +107,7 @@ router.get("/", async (req, res) => {
     const bills = await GymBill.find().sort({ _id: -1 });
     res.status(200).json(bills);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error fetching bills", error: error.message });
+    res.status(500).json({ message: "Error fetching bills", error: error.message });
   }
 });
 
@@ -122,23 +116,17 @@ router.get("/", async (req, res) => {
 // ----------------------------
 router.get("/last-member-id", async (req, res) => {
   try {
-    const allBills = await GymBill.find({
-      memberId: { $regex: "^H40" },
-    }).lean();
+    const lastBill = await GymBill.findOne().sort({ _id: -1 }).lean();
 
-    const lastNumber =
-      allBills.length > 0
-        ? Math.max(
-            ...allBills.map((b) =>
-              parseInt(b.memberId.replace("H40", ""), 10)
-            )
-          )
-        : 0;
+    let nextMemberId = 1;
+    if (lastBill && lastBill.memberId) {
+      const lastNumber = parseInt(lastBill.memberId, 10);
+      if (!isNaN(lastNumber)) {
+        nextMemberId = lastNumber + 1;
+      }
+    }
 
-    const nextNumber = lastNumber + 1;
-    const nextMemberId = `H40${String(nextNumber).padStart(3, "0")}`;
-
-    res.json({ nextMemberId });
+    res.json({ nextMemberId: nextMemberId.toString() });
   } catch (err) {
     console.error("❌ Error fetching next member ID:", err);
     res.status(500).json({ error: "Error fetching next member ID" });
@@ -198,9 +186,7 @@ router.put("/:id", upload.single("profilePicture"), async (req, res) => {
     const updated = await GymBill.findByIdAndUpdate(
       req.params.id,
       updatedData,
-      {
-        new: true,
-      }
+      { new: true }
     );
 
     res.json(updated);
