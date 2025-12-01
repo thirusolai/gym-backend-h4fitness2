@@ -22,13 +22,13 @@ const gymBillSchema = new mongoose.Schema(
       contentType: String,
     },
 
+    // ⭐ Initial Bill Details
     package: String,
     joiningDate: String,
     endDate: String,
     sessions: Number,
     price: Number,
 
-    // 👇 You want to store this from frontend
     discountAmount: {
       type: Number,
       default: 0,
@@ -40,6 +40,9 @@ const gymBillSchema = new mongoose.Schema(
     amountPaid: Number,
     balance: Number,
     amount: Number,
+
+    // ⭐ SAVE mode of payment for NEW CLIENT
+    initialPaymentMode: String,
 
     followupDate: String,
 
@@ -53,6 +56,7 @@ const gymBillSchema = new mongoose.Schema(
     appointTrainer: String,
     clientRep: String,
 
+    // 💰 PAYMENT HISTORY (Correct)
     paymentHistory: [
       {
         amount: Number,
@@ -62,18 +66,31 @@ const gymBillSchema = new mongoose.Schema(
       },
     ],
 
+    // 🔁 RENEWAL HISTORY (modeOfPayment included)
     renewalHistory: [
       {
         joiningDate: String,
         endDate: String,
         package: String,
         price: Number,
+        admissionCharges: Number,   // ⭐ Added (missing earlier)
         discountAmount: Number,
-        
         amountPaid: Number,
         balance: Number,
         remarks: String,
         trainer: String,
+        modeOfPayment: String, // ⭐ Mode of payment for renewal
+        date: { type: Date, default: Date.now },
+      },
+    ],
+
+    // 📊 BALANCE HISTORY
+    balanceHistory: [
+      {
+        previousBalance: Number,
+        newBalance: Number,
+        change: Number,
+        reason: String,
         date: { type: Date, default: Date.now },
       },
     ],
@@ -82,5 +99,4 @@ const gymBillSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ❌ Removed pre save (it overwrote discountAmount, balance...)
 export default mongoose.model("GymBill", gymBillSchema);

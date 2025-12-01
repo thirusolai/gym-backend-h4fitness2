@@ -102,16 +102,21 @@ router.post("/", upload.single("profilePicture"), async (req, res) => {
     }
 
     // Create new bill
-    const newBill = new GymBill({
-      ...req.body,
-      memberId,
-      status,
-      profilePicture,
-      admissionCharges: admissionCharges, // ⭐ store it
-      balance: firstBalance,
-      discountAmount: discountAmt,
-      renewalHistory: [firstRenewalEntry],
-    });
+   const newBill = new GymBill({
+  ...req.body,
+  memberId,
+  status,
+  profilePicture,
+  admissionCharges: admissionCharges,
+
+  // ⭐ Save payment mode for new client
+  initialPaymentMode: req.body.initialPaymentMode,
+
+  balance: firstBalance,
+  discountAmount: discountAmt,
+  renewalHistory: [firstRenewalEntry],
+});
+
 
     await newBill.save();
 
@@ -164,9 +169,9 @@ router.put("/renew/:id", async (req, res) => {
       endDate,
       package: pkg,
       price,
+      admissionCharges,
       discountAmount,
       amountPaid,
-      balance,
       remarks,
       trainer,
     } = req.body;
@@ -174,36 +179,37 @@ router.put("/renew/:id", async (req, res) => {
     const client = await GymBill.findById(req.params.id);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
+    // ⭐ Convert values
     const priceNum = Number(price) || 0;
+    const adm = Number(admissionCharges) || 0;
+    const disc = Number(discountAmount) || 0;
+    const paid = Number(amountPaid) || 0;
 
-    // ⭐ Read admissionCharges from frontend
-    const admissionCharges = Number(req.body.admissionCharges) || 0;
+    const newBalance = priceNum + adm - disc - paid;
 
-    const discountAmt = Number(discountAmount) || 0;
-    const paidAmt = Number(amountPaid) || 0;
+    // -------------------------------------------
+    // 1️⃣ PUSH CURRENT ACTIVE RENEWAL → HISTORY
+    // -------------------------------------------
+    const oldRenewal = {
+      joiningDate: client.joiningDate,
+      endDate: client.endDate,
+      package: client.package,
+      price: client.price,
+      admissionCharges: client.admissionCharges,
+      discountAmount: client.discountAmount,
+      amountPaid: client.amountPaid,
+      balance: client.balance,
+      remarks: client.remarks,
+      trainer: client.appointTrainer,
+    };
 
-    // ⭐ CORRECT RENEWAL BALANCE FORMULA
-    const newBalance = priceNum + admissionCharges - discountAmt - paidAmt;
-
-    // 1️⃣ Push renewal history
     await GymBill.findByIdAndUpdate(req.params.id, {
-      $push: {
-        renewalHistory: {
-          joiningDate,
-          endDate,
-          package: pkg,
-          price: priceNum,
-          admissionCharges: admissionCharges,
-          discountAmount: discountAmt,
-          amountPaid: paidAmt,
-          balance: newBalance,
-          remarks,
-          trainer,
-        },
-      },
+      $push: { renewalHistory: oldRenewal },
     });
 
-    // 2️⃣ Update latest user fields
+    // -------------------------------------------
+    // 2️⃣ UPDATE MAIN FIELDS WITH NEW RENEWAL
+    // -------------------------------------------
     const updated = await GymBill.findByIdAndUpdate(
       req.params.id,
       {
@@ -211,9 +217,9 @@ router.put("/renew/:id", async (req, res) => {
         endDate,
         package: pkg,
         price: priceNum,
-        admissionCharges: admissionCharges,
-        discountAmount: discountAmt,
-        amountPaid: paidAmt,
+        admissionCharges: adm,
+        discountAmount: disc,
+        amountPaid: paid,
         balance: newBalance,
         remarks,
         appointTrainer: trainer,
@@ -223,14 +229,15 @@ router.put("/renew/:id", async (req, res) => {
     );
 
     res.status(200).json({
-      message: "Membership renewed successfully",
+      message: "Renewal updated successfully",
       data: updated,
     });
   } catch (err) {
     console.error("Renewal error:", err);
-    res.status(500).json({ error: "Renewal failed", details: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
+
 
 // ------------------
 // ✏️ Edit Renewal Entry
@@ -279,9 +286,12 @@ router.put("/:id", upload.single("profilePicture"), async (req, res) => {
       updatedData.status = "Active";
     }
 
-    const updated = await GymBill.findByIdAndUpdate(req.params.id, updatedData, {
-      new: true,
-    });
+    const updated = await GymBill.findByIdAndUpdate(
+  req.params.id,
+  { $set: updatedData },
+  { new: true, runValidators: true }
+);
+
 
     res.json(updated);
   } catch (err) {
@@ -328,42 +338,94 @@ router.delete("/renew/delete/:clientId/:renewId", async (req, res) => {
 // ---------------------------
 // 💰 Update Payment + Followup
 // ---------------------------
+// ---------------------------
+// 💰 Update Payment + Save History ALWAYS
+// ---------------------------
 router.put("/payment/:id", async (req, res) => {
   try {
-    const { amountPaid, balance, paymentHistory, followUpDate } = req.body;
+    const { amountPaid, balance, mode, note, followUpDate } = req.body;
 
+    // 1️⃣ Get old bill
+    const oldBill = await GymBill.findById(req.params.id);
+    if (!oldBill) return res.status(404).json({ message: "Client not found" });
+
+    // 2️⃣ Calculate HOW MUCH was paid now
+    const previousPaid = oldBill.amountPaid || 0;
+    const newPaidTotal = Number(amountPaid);
+    const paidNow = newPaidTotal - previousPaid;   // ⭐ ACTUAL PAYMENT
+
+    // 3️⃣ Save payment entry
+    const paymentEntry = {
+      amount: paidNow,       // ⭐ STORE ONLY CURRENT PAYMENT
+      mode,
+      note: note || "",
+      date: new Date(),
+    };
+
+    // 4️⃣ Update bill
     const updatedBill = await GymBill.findByIdAndUpdate(
       req.params.id,
       {
-        amountPaid,
+        amountPaid: newPaidTotal,
         balance,
-        $push: { paymentHistory },
+        $push: { paymentHistory: paymentEntry },
       },
       { new: true }
     );
 
-    if (!updatedBill) {
-      return res.status(404).json({ message: "Client not found" });
-    }
-
+    // 5️⃣ Optional followup
     if (followUpDate) {
       await Followup.create({
         client: req.params.id,
         followupType: "Payment",
         scheduleDate: followUpDate,
-        response: paymentHistory.note || "Payment Follow-up",
+        response: note || "Payment Follow-up",
         status: "Pending",
       });
     }
 
-    res.status(200).json({
-      message: "Payment updated successfully",
+    return res.status(200).json({
+      message: "Payment updated & history saved",
       data: updatedBill,
     });
+
   } catch (error) {
     console.error("❌ Payment update error:", error);
     res.status(500).json({ error: error.message });
   }
 });
+
+
+
+router.get("/", async (req, res) => {
+  try {
+    let bills = await GymBill.find().sort({ _id: -1 });
+
+    bills = bills.map((bill) => {
+      const renewalTotal = (bill.renewalHistory || []).reduce(
+        (sum, r) => sum + (r.amountPaid || 0),
+        0
+      );
+
+      const totalPaidIncludingRenewals =
+        (bill.amountPaid || 0) + renewalTotal;
+
+      // ⭐ FIX — include EVERYTHING in bill._doc INCLUDING paymentHistory
+      return {
+        ...bill._doc,
+        paymentHistory: bill.paymentHistory,   // ⭐ add this
+        renewalHistory: bill.renewalHistory,   // safe
+        totalPaidIncludingRenewals,
+      };
+    });
+
+    res.status(200).json(bills);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error fetching bills", error: error.message });
+  }
+});
+
 
 export default router;
